@@ -79,6 +79,35 @@ class AthenaWriter:
             sentiment_score DOUBLE,
             sentiment_emotions ARRAY<STRING>,
             sentiment_topics ARRAY<STRING>,
+            -- Entity fields
+            people ARRAY<STRING>,
+            organizations ARRAY<STRING>,
+            locations ARRAY<STRING>,
+            products ARRAY<STRING>,
+            hashtags ARRAY<STRING>,
+            mentions ARRAY<STRING>,
+            -- Topic classification fields
+            primary_category STRING,
+            sub_categories ARRAY<STRING>,
+            industry STRING,
+            keywords ARRAY<STRING>,
+            is_commercial BOOLEAN,
+            is_news BOOLEAN,
+            -- Engagement scoring fields
+            engagement_score DOUBLE,
+            engagement_rate DOUBLE,
+            virality_score DOUBLE,
+            interaction_quality DOUBLE,
+            time_adjusted_score DOUBLE,
+            percentile_score DOUBLE,
+            engagement_tier STRING,
+            -- Content moderation fields
+            is_safe BOOLEAN,
+            risk_level STRING,
+            flags ARRAY<STRING>,
+            content_warnings ARRAY<STRING>,
+            recommended_action STRING,
+            confidence_score DOUBLE,
             -- Enrichment metadata
             enriched_at TIMESTAMP,
             enrichment_version STRING

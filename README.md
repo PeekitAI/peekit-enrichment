@@ -4,20 +4,48 @@ Unified data enrichment pipeline for social media crawler data. Processes raw tw
 
 ## Features
 
-### Current Modules
+### Implemented Modules
 
-- **Sentiment Analysis** - Analyzes sentiment using z.ai with structured output
-  - Sentiment label (positive/negative/neutral)
-  - Confidence score
-  - Emotions detected
-  - Topics/themes extracted
+All 5 enrichment modules are fully implemented and production-ready:
 
-### Planned Modules
+1. **Sentiment Analysis** - Analyzes sentiment using z.ai with structured output
+   - Sentiment label (positive/negative/neutral)
+   - Confidence score
+   - Emotions detected
+   - Topics/themes extracted
 
-- Entity Extraction - Extract people, places, brands
-- Topic Classification - Categorize content by topic
-- Engagement Scoring - Predict engagement potential
-- Content Moderation - Flag inappropriate content
+2. **Entity Extraction** - Extracts named entities using z.ai
+   - People names
+   - Organizations/brands
+   - Locations/places
+   - Products/services
+   - Hashtags
+   - User mentions
+
+3. **Topic Classification** - Categorizes content using z.ai
+   - Primary category (Technology, Business, Entertainment, etc.)
+   - Sub-categories
+   - Industry/sector
+   - Keywords
+   - Commercial content flag
+   - News content flag
+
+4. **Engagement Scoring** - Calculates engagement metrics (algorithmic, no API)
+   - Weighted engagement score
+   - Engagement rate
+   - Virality score
+   - Interaction quality
+   - Time-adjusted score
+   - Percentile ranking
+   - Engagement tier
+
+5. **Content Moderation** - Flags inappropriate content using z.ai
+   - Safety assessment
+   - Risk level (safe/low/medium/high/critical)
+   - Content flags (hate speech, violence, adult content, spam, etc.)
+   - Content warnings
+   - Recommended action (none/flag/review/remove)
+   - Confidence score
 
 ## Architecture
 
@@ -98,6 +126,10 @@ ENRICHMENT_LIMIT=500 python -m enrichment.main
 | `ZAI_API_KEY` | Z.ai API key | Required |
 | `ZAI_MODEL` | Z.ai model to use | `gpt-4o-mini` |
 | `ENABLE_SENTIMENT` | Enable sentiment analysis | `true` |
+| `ENABLE_ENTITY` | Enable entity extraction | `true` |
+| `ENABLE_TOPIC` | Enable topic classification | `true` |
+| `ENABLE_ENGAGEMENT` | Enable engagement scoring | `true` |
+| `ENABLE_MODERATION` | Enable content moderation | `true` |
 | `ENRICHMENT_LIMIT` | Max tweets to process | `100` |
 | `ENRICHMENT_BATCH_SIZE` | Batch size for writing | `10` |
 
@@ -107,9 +139,13 @@ Enable/disable modules via environment variables:
 
 ```bash
 ENABLE_SENTIMENT=true
-ENABLE_ENTITY=false
-ENABLE_TOPIC=false
+ENABLE_ENTITY=true
+ENABLE_TOPIC=true
+ENABLE_ENGAGEMENT=true
+ENABLE_MODERATION=true
 ```
+
+All modules are enabled by default. Set to `false` to disable individual modules.
 
 ## Database Schema
 
@@ -139,6 +175,31 @@ Enriched tweet data with additional fields:
 | **`sentiment_score`** | **DOUBLE** | **Confidence score (0-1)** |
 | **`sentiment_emotions`** | **ARRAY<STRING>** | **Emotions detected** |
 | **`sentiment_topics`** | **ARRAY<STRING>** | **Topics extracted** |
+| **`people`** | **ARRAY<STRING>** | **People mentioned** |
+| **`organizations`** | **ARRAY<STRING>** | **Organizations/brands mentioned** |
+| **`locations`** | **ARRAY<STRING>** | **Locations mentioned** |
+| **`products`** | **ARRAY<STRING>** | **Products mentioned** |
+| **`hashtags`** | **ARRAY<STRING>** | **Hashtags used** |
+| **`mentions`** | **ARRAY<STRING>** | **User mentions** |
+| **`primary_category`** | **STRING** | **Primary content category** |
+| **`sub_categories`** | **ARRAY<STRING>** | **Sub-categories** |
+| **`industry`** | **STRING** | **Industry/sector** |
+| **`keywords`** | **ARRAY<STRING>** | **Keywords** |
+| **`is_commercial`** | **BOOLEAN** | **Commercial content flag** |
+| **`is_news`** | **BOOLEAN** | **News content flag** |
+| **`engagement_score`** | **DOUBLE** | **Weighted engagement score** |
+| **`engagement_rate`** | **DOUBLE** | **Engagement rate** |
+| **`virality_score`** | **DOUBLE** | **Virality score** |
+| **`interaction_quality`** | **DOUBLE** | **Interaction quality** |
+| **`time_adjusted_score`** | **DOUBLE** | **Time-adjusted score** |
+| **`percentile_score`** | **DOUBLE** | **Percentile ranking** |
+| **`engagement_tier`** | **STRING** | **Engagement tier** |
+| **`is_safe`** | **BOOLEAN** | **Content safety flag** |
+| **`risk_level`** | **STRING** | **Risk level** |
+| **`flags`** | **ARRAY<STRING>** | **Moderation flags** |
+| **`content_warnings`** | **ARRAY<STRING>** | **Content warnings** |
+| **`recommended_action`** | **STRING** | **Recommended moderation action** |
+| **`confidence_score`** | **DOUBLE** | **Moderation confidence** |
 | `enriched_at` | TIMESTAMP | Enrichment timestamp |
 | `enrichment_version` | STRING | Pipeline version |
 

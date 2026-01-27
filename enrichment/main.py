@@ -5,7 +5,13 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 from enrichment.common import AthenaReader, AthenaWriter
-from enrichment.modules import SentimentAnalyzer
+from enrichment.modules import (
+    SentimentAnalyzer,
+    EntityExtractor,
+    TopicClassifier,
+    EngagementScorer,
+    ContentModerator
+)
 
 
 class EnrichmentPipeline:
@@ -19,13 +25,19 @@ class EnrichmentPipeline:
         # Initialize modules based on config
         self.modules_enabled = {
             'sentiment': os.getenv('ENABLE_SENTIMENT', 'true').lower() == 'true',
-            # Add more modules here as they're built
-            # 'entity': os.getenv('ENABLE_ENTITY', 'false').lower() == 'true',
-            # 'topic': os.getenv('ENABLE_TOPIC', 'false').lower() == 'true',
+            'entity': os.getenv('ENABLE_ENTITY', 'true').lower() == 'true',
+            'topic': os.getenv('ENABLE_TOPIC', 'true').lower() == 'true',
+            'engagement': os.getenv('ENABLE_ENGAGEMENT', 'true').lower() == 'true',
+            'moderation': os.getenv('ENABLE_MODERATION', 'true').lower() == 'true',
         }
 
         # Initialize enabled modules
         self.sentiment_analyzer = None
+        self.entity_extractor = None
+        self.topic_classifier = None
+        self.engagement_scorer = None
+        self.content_moderator = None
+
         if self.modules_enabled['sentiment']:
             try:
                 self.sentiment_analyzer = SentimentAnalyzer()
@@ -33,6 +45,38 @@ class EnrichmentPipeline:
             except Exception as e:
                 print(f"✗ Failed to initialize sentiment analyzer: {e}")
                 self.modules_enabled['sentiment'] = False
+
+        if self.modules_enabled['entity']:
+            try:
+                self.entity_extractor = EntityExtractor()
+                print("✓ Entity extractor initialized")
+            except Exception as e:
+                print(f"✗ Failed to initialize entity extractor: {e}")
+                self.modules_enabled['entity'] = False
+
+        if self.modules_enabled['topic']:
+            try:
+                self.topic_classifier = TopicClassifier()
+                print("✓ Topic classifier initialized")
+            except Exception as e:
+                print(f"✗ Failed to initialize topic classifier: {e}")
+                self.modules_enabled['topic'] = False
+
+        if self.modules_enabled['engagement']:
+            try:
+                self.engagement_scorer = EngagementScorer()
+                print("✓ Engagement scorer initialized")
+            except Exception as e:
+                print(f"✗ Failed to initialize engagement scorer: {e}")
+                self.modules_enabled['engagement'] = False
+
+        if self.modules_enabled['moderation']:
+            try:
+                self.content_moderator = ContentModerator()
+                print("✓ Content moderator initialized")
+            except Exception as e:
+                print(f"✗ Failed to initialize content moderator: {e}")
+                self.modules_enabled['moderation'] = False
 
     def run(self, limit: int = 100, batch_size: int = 10):
         """
@@ -123,8 +167,7 @@ class EnrichmentPipeline:
                 sentiment = self.sentiment_analyzer.analyze(tweet.get('tweet_text', ''))
                 enriched.update(sentiment)
             except Exception as e:
-                print(f"  Warning: Sentiment analysis failed for tweet {tweet.get('tweet_id')}: {e}")
-                # Add empty sentiment fields
+                print(f"  Warning: Sentiment analysis failed: {e}")
                 enriched.update({
                     'sentiment_label': 'unknown',
                     'sentiment_score': 0.0,
@@ -132,10 +175,73 @@ class EnrichmentPipeline:
                     'sentiment_topics': []
                 })
 
-        # Add more enrichment modules here as they're built
-        # if self.modules_enabled['entity'] and self.entity_extractor:
-        #     entities = self.entity_extractor.extract(tweet.get('tweet_text', ''))
-        #     enriched['entities'] = entities
+        # Run entity extraction if enabled
+        if self.modules_enabled['entity'] and self.entity_extractor:
+            try:
+                entities = self.entity_extractor.extract(tweet.get('tweet_text', ''))
+                enriched.update(entities)
+            except Exception as e:
+                print(f"  Warning: Entity extraction failed: {e}")
+                enriched.update({
+                    'people': [],
+                    'organizations': [],
+                    'locations': [],
+                    'products': [],
+                    'hashtags': [],
+                    'mentions': []
+                })
+
+        # Run topic classification if enabled
+        if self.modules_enabled['topic'] and self.topic_classifier:
+            try:
+                topics = self.topic_classifier.classify(
+                    tweet.get('tweet_text', ''),
+                    tweet.get('author', '')
+                )
+                enriched.update(topics)
+            except Exception as e:
+                print(f"  Warning: Topic classification failed: {e}")
+                enriched.update({
+                    'primary_category': 'Other',
+                    'sub_categories': [],
+                    'industry': 'Unknown',
+                    'keywords': [],
+                    'is_commercial': False,
+                    'is_news': False
+                })
+
+        # Run engagement scoring if enabled
+        if self.modules_enabled['engagement'] and self.engagement_scorer:
+            try:
+                engagement = self.engagement_scorer.score(tweet)
+                enriched.update(engagement)
+            except Exception as e:
+                print(f"  Warning: Engagement scoring failed: {e}")
+                enriched.update({
+                    'engagement_score': 0.0,
+                    'engagement_rate': 0.0,
+                    'virality_score': 0.0,
+                    'interaction_quality': 0.0,
+                    'time_adjusted_score': 0.0,
+                    'percentile_score': 0.0,
+                    'engagement_tier': 'Low'
+                })
+
+        # Run content moderation if enabled
+        if self.modules_enabled['moderation'] and self.content_moderator:
+            try:
+                moderation = self.content_moderator.moderate(tweet.get('tweet_text', ''))
+                enriched.update(moderation)
+            except Exception as e:
+                print(f"  Warning: Content moderation failed: {e}")
+                enriched.update({
+                    'is_safe': True,
+                    'risk_level': 'safe',
+                    'flags': [],
+                    'content_warnings': [],
+                    'recommended_action': 'none',
+                    'confidence_score': 1.0
+                })
 
         return enriched
 
