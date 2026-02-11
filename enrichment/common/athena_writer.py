@@ -113,9 +113,10 @@ class AthenaWriter:
             confidence_score DOUBLE,
             -- Enrichment metadata
             enriched_at TIMESTAMP,
-            enrichment_version STRING
+            enrichment_version STRING,
+            date DATE
         )
-        PARTITIONED BY (date DATE)
+        PARTITIONED BY (date)
         LOCATION 's3://peekit-iceberg-data-126730103313/warehouse/enrichments/'
         TBLPROPERTIES (
             'table_type' = 'ICEBERG',
@@ -239,9 +240,10 @@ class AthenaWriter:
             confidence_score DOUBLE,
             -- Enrichment metadata
             enriched_at TIMESTAMP,
-            enrichment_version STRING
+            enrichment_version STRING,
+            date DATE
         )
-        PARTITIONED BY (date DATE)
+        PARTITIONED BY (date)
         LOCATION 's3://peekit-iceberg-data-126730103313/warehouse/x_tweets_enriched/'
         TBLPROPERTIES (
             'table_type' = 'ICEBERG',
