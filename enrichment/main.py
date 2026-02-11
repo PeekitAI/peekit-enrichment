@@ -1,10 +1,11 @@
-"""Main enrichment pipeline - orchestrates all enrichment modules"""
+"""Main enrichment pipeline - orchestrates all enrichment modules across providers"""
 import os
 import sys
 from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 from enrichment.common import AthenaReader, AthenaWriter
+from enrichment.providers import PROVIDERS, ProviderConfig, normalize_record
 from enrichment.modules import (
     SentimentAnalyzer,
     EntityExtractor,
@@ -18,9 +19,19 @@ class EnrichmentPipeline:
     """Main enrichment pipeline coordinator"""
 
     def __init__(self):
-        # Initialize components
         self.reader = AthenaReader()
         self.writer = AthenaWriter()
+
+        # Determine which providers to process
+        providers_env = os.getenv('ENRICHMENT_PROVIDERS', '')
+        if providers_env.strip():
+            selected = [p.strip() for p in providers_env.split(',') if p.strip()]
+            self.providers = {k: v for k, v in PROVIDERS.items() if k in selected}
+            unknown = set(selected) - set(PROVIDERS.keys())
+            if unknown:
+                print(f"Warning: Unknown providers ignored: {unknown}")
+        else:
+            self.providers = dict(PROVIDERS)
 
         # Initialize modules based on config
         self.modules_enabled = {
@@ -31,7 +42,6 @@ class EnrichmentPipeline:
             'moderation': os.getenv('ENABLE_MODERATION', 'true').lower() == 'true',
         }
 
-        # Initialize enabled modules
         self.sentiment_analyzer = None
         self.entity_extractor = None
         self.topic_classifier = None
@@ -41,133 +51,141 @@ class EnrichmentPipeline:
         if self.modules_enabled['sentiment']:
             try:
                 self.sentiment_analyzer = SentimentAnalyzer()
-                print("✓ Sentiment analyzer initialized")
+                print("  Sentiment analyzer initialized")
             except Exception as e:
-                print(f"✗ Failed to initialize sentiment analyzer: {e}")
+                print(f"  Failed to initialize sentiment analyzer: {e}")
                 self.modules_enabled['sentiment'] = False
 
         if self.modules_enabled['entity']:
             try:
                 self.entity_extractor = EntityExtractor()
-                print("✓ Entity extractor initialized")
+                print("  Entity extractor initialized")
             except Exception as e:
-                print(f"✗ Failed to initialize entity extractor: {e}")
+                print(f"  Failed to initialize entity extractor: {e}")
                 self.modules_enabled['entity'] = False
 
         if self.modules_enabled['topic']:
             try:
                 self.topic_classifier = TopicClassifier()
-                print("✓ Topic classifier initialized")
+                print("  Topic classifier initialized")
             except Exception as e:
-                print(f"✗ Failed to initialize topic classifier: {e}")
+                print(f"  Failed to initialize topic classifier: {e}")
                 self.modules_enabled['topic'] = False
 
         if self.modules_enabled['engagement']:
             try:
                 self.engagement_scorer = EngagementScorer()
-                print("✓ Engagement scorer initialized")
+                print("  Engagement scorer initialized")
             except Exception as e:
-                print(f"✗ Failed to initialize engagement scorer: {e}")
+                print(f"  Failed to initialize engagement scorer: {e}")
                 self.modules_enabled['engagement'] = False
 
         if self.modules_enabled['moderation']:
             try:
                 self.content_moderator = ContentModerator()
-                print("✓ Content moderator initialized")
+                print("  Content moderator initialized")
             except Exception as e:
-                print(f"✗ Failed to initialize content moderator: {e}")
+                print(f"  Failed to initialize content moderator: {e}")
                 self.modules_enabled['moderation'] = False
 
     def run(self, limit: int = 100, batch_size: int = 10):
         """
-        Run the enrichment pipeline
+        Run the enrichment pipeline across all configured providers.
 
         Args:
-            limit: Maximum number of tweets to process
-            batch_size: Number of tweets to write per batch
+            limit: Maximum number of records to process per provider
+            batch_size: Number of records to write per batch
         """
         print("=" * 80)
         print("Peekit Data Enrichment Pipeline")
         print("=" * 80)
+        print(f"Providers: {list(self.providers.keys())}")
         print(f"Enabled modules: {[k for k, v in self.modules_enabled.items() if v]}")
         print()
 
-        # Step 1: Ensure enriched table exists
-        print("Step 1: Setting up enriched tweets table...")
+        # Step 1: Ensure enrichments table exists
+        print("Step 1: Setting up enrichments table...")
         try:
-            self.writer.create_enriched_tweets_table()
-            print("✓ Enriched table ready")
+            self.writer.create_enrichments_table()
+            print("  Enrichments table ready")
         except Exception as e:
-            print(f"✗ Failed to create enriched table: {e}")
+            print(f"  Failed to create enrichments table: {e}")
             sys.exit(1)
 
-        # Step 2: Fetch tweets to enrich
-        print(f"\nStep 2: Fetching up to {limit} tweets...")
-        try:
-            tweets = self.reader.fetch_unenriched_tweets(limit=limit)
-            if not tweets:
-                print("No tweets to enrich. Exiting.")
-                return
-            print(f"✓ Fetched {len(tweets)} tweets")
-        except Exception as e:
-            print(f"✗ Failed to fetch tweets: {e}")
-            sys.exit(1)
+        # Step 2: Process each provider
+        total_enriched = 0
 
-        # Step 3: Enrich tweets
-        print(f"\nStep 3: Enriching {len(tweets)} tweets...")
-        enriched_tweets = []
+        for provider_name, config in self.providers.items():
+            print(f"\n{'─' * 60}")
+            print(f"Processing provider: {provider_name}")
+            print(f"{'─' * 60}")
 
-        for i, tweet in enumerate(tweets, 1):
-            print(f"Processing tweet {i}/{len(tweets)}: {tweet.get('tweet_id')}")
+            # Fetch unenriched records
+            try:
+                raw_records = self.reader.fetch_unenriched(config, limit=limit)
+                if not raw_records:
+                    print(f"  No unenriched records for {provider_name}. Skipping.")
+                    continue
+            except Exception as e:
+                print(f"  Failed to fetch from {provider_name}: {e}")
+                continue
 
-            enriched = self._enrich_tweet(tweet)
-            enriched_tweets.append(enriched)
+            # Normalize records
+            normalized = [normalize_record(r, config) for r in raw_records]
 
-            # Progress indicator
-            if i % 10 == 0:
-                print(f"  Processed {i}/{len(tweets)} tweets...")
+            # Enrich each record
+            enriched_records = []
+            for i, record in enumerate(normalized, 1):
+                print(f"  Enriching {i}/{len(normalized)}: {record['source_id']}")
 
-        print(f"✓ Enriched {len(enriched_tweets)} tweets")
+                enriched = self._enrich_record(record)
+                enriched_records.append(enriched)
 
-        # Step 4: Write enriched data
-        print(f"\nStep 4: Writing enriched tweets to Iceberg...")
-        try:
-            self.writer.merge_enriched_tweets_batch(enriched_tweets, batch_size=batch_size)
-            print(f"✓ Successfully wrote {len(enriched_tweets)} enriched tweets")
-        except Exception as e:
-            print(f"✗ Failed to write enriched tweets: {e}")
-            sys.exit(1)
+                if i % 10 == 0:
+                    print(f"    Processed {i}/{len(normalized)} records...")
 
-        print("\n" + "=" * 80)
-        print("Enrichment pipeline completed successfully!")
+            print(f"  Enriched {len(enriched_records)} records from {provider_name}")
+
+            # Write enriched records
+            try:
+                self.writer.merge_enriched_records_batch(enriched_records, batch_size=batch_size)
+                total_enriched += len(enriched_records)
+                print(f"  Wrote {len(enriched_records)} records for {provider_name}")
+            except Exception as e:
+                print(f"  Failed to write enriched records for {provider_name}: {e}")
+
+        print(f"\n{'=' * 80}")
+        print(f"Enrichment pipeline completed. Total records enriched: {total_enriched}")
         print("=" * 80)
 
-    def _enrich_tweet(self, tweet: Dict[str, Any]) -> Dict[str, Any]:
+    def _enrich_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Enrich a single tweet with all enabled modules
+        Enrich a single normalized record with all enabled modules.
 
-        Args:
-            tweet: Original tweet data
+        The record dict uses the normalized keys: text, author, likes,
+        retweets, replies, views, posted_at, etc.
 
-        Returns:
-            Tweet with enrichment fields added
+        After enrichment, renames keys to match the enrichments table schema:
+        text -> source_text, author -> source_author, retweets -> shares,
+        replies -> comments.
         """
-        enriched = tweet.copy()
+        enriched = record.copy()
 
-        # Add enrichment metadata
+        text = record.get('text', '')
+        author = record.get('author', '')
+
+        # Enrichment metadata
         enriched['enriched_at'] = datetime.now(timezone.utc)
         enriched['enrichment_version'] = '1.0.0'
-
-        # Add partition date
         enriched['date'] = datetime.now(timezone.utc).date()
 
-        # Run sentiment analysis if enabled
+        # Run sentiment analysis
         if self.modules_enabled['sentiment'] and self.sentiment_analyzer:
             try:
-                sentiment = self.sentiment_analyzer.analyze(tweet.get('tweet_text', ''))
+                sentiment = self.sentiment_analyzer.analyze(text)
                 enriched.update(sentiment)
             except Exception as e:
-                print(f"  Warning: Sentiment analysis failed: {e}")
+                print(f"    Warning: Sentiment analysis failed: {e}")
                 enriched.update({
                     'sentiment_label': 'unknown',
                     'sentiment_score': 0.0,
@@ -175,13 +193,13 @@ class EnrichmentPipeline:
                     'sentiment_topics': []
                 })
 
-        # Run entity extraction if enabled
+        # Run entity extraction
         if self.modules_enabled['entity'] and self.entity_extractor:
             try:
-                entities = self.entity_extractor.extract(tweet.get('tweet_text', ''))
+                entities = self.entity_extractor.extract(text)
                 enriched.update(entities)
             except Exception as e:
-                print(f"  Warning: Entity extraction failed: {e}")
+                print(f"    Warning: Entity extraction failed: {e}")
                 enriched.update({
                     'people': [],
                     'organizations': [],
@@ -191,16 +209,13 @@ class EnrichmentPipeline:
                     'mentions': []
                 })
 
-        # Run topic classification if enabled
+        # Run topic classification
         if self.modules_enabled['topic'] and self.topic_classifier:
             try:
-                topics = self.topic_classifier.classify(
-                    tweet.get('tweet_text', ''),
-                    tweet.get('author', '')
-                )
+                topics = self.topic_classifier.classify(text, author)
                 enriched.update(topics)
             except Exception as e:
-                print(f"  Warning: Topic classification failed: {e}")
+                print(f"    Warning: Topic classification failed: {e}")
                 enriched.update({
                     'primary_category': 'Other',
                     'sub_categories': [],
@@ -210,13 +225,13 @@ class EnrichmentPipeline:
                     'is_news': False
                 })
 
-        # Run engagement scoring if enabled
+        # Run engagement scoring - uses likes, retweets, replies, views keys
         if self.modules_enabled['engagement'] and self.engagement_scorer:
             try:
-                engagement = self.engagement_scorer.score(tweet)
+                engagement = self.engagement_scorer.score(record)
                 enriched.update(engagement)
             except Exception as e:
-                print(f"  Warning: Engagement scoring failed: {e}")
+                print(f"    Warning: Engagement scoring failed: {e}")
                 enriched.update({
                     'engagement_score': 0.0,
                     'engagement_rate': 0.0,
@@ -227,13 +242,13 @@ class EnrichmentPipeline:
                     'engagement_tier': 'Low'
                 })
 
-        # Run content moderation if enabled
+        # Run content moderation
         if self.modules_enabled['moderation'] and self.content_moderator:
             try:
-                moderation = self.content_moderator.moderate(tweet.get('tweet_text', ''))
+                moderation = self.content_moderator.moderate(text)
                 enriched.update(moderation)
             except Exception as e:
-                print(f"  Warning: Content moderation failed: {e}")
+                print(f"    Warning: Content moderation failed: {e}")
                 enriched.update({
                     'is_safe': True,
                     'risk_level': 'safe',
@@ -243,16 +258,20 @@ class EnrichmentPipeline:
                     'confidence_score': 1.0
                 })
 
+        # Rename normalized keys to match enrichments table schema
+        enriched['source_text'] = enriched.pop('text', '')
+        enriched['source_author'] = enriched.pop('author', '')
+        enriched['shares'] = enriched.pop('retweets', 0)
+        enriched['comments'] = enriched.pop('replies', 0)
+
         return enriched
 
 
 def main():
     """Main entry point"""
-    # Configuration from environment variables
     limit = int(os.getenv('ENRICHMENT_LIMIT', '100'))
     batch_size = int(os.getenv('ENRICHMENT_BATCH_SIZE', '10'))
 
-    # Create and run pipeline
     pipeline = EnrichmentPipeline()
     pipeline.run(limit=limit, batch_size=batch_size)
 
