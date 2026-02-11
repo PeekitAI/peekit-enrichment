@@ -1,8 +1,7 @@
-"""Entity extraction module using z.ai with structured output"""
-import os
-import requests
+"""Entity extraction module using AWS Bedrock with structured output"""
 from typing import Dict, Any, List
 from pydantic import BaseModel, Field
+from enrichment.common import BedrockClient
 
 
 class EntityOutput(BaseModel):
@@ -17,7 +16,7 @@ class EntityOutput(BaseModel):
 
 class EntityExtractor:
     """
-    Extract entities from text using z.ai's structured output
+    Extract entities from text using AWS Bedrock structured output
 
     Extracts:
     - People names
@@ -29,12 +28,7 @@ class EntityExtractor:
     """
 
     def __init__(self):
-        self.api_key = os.getenv('ZAI_API_KEY')
-        if not self.api_key:
-            raise ValueError("ZAI_API_KEY environment variable is required")
-
-        self.api_url = os.getenv('ZAI_API_URL', 'https://api.z.ai/v1/chat/completions')
-        self.model = os.getenv('ZAI_MODEL', 'gpt-4o-mini')
+        self.client = BedrockClient()
 
     def extract(self, text: str) -> Dict[str, Any]:
         """
@@ -51,7 +45,13 @@ class EntityExtractor:
 
         try:
             prompt = self._build_prompt(text)
-            result = self._call_zai_api(prompt)
+            result = self.client.invoke_structured(
+                system_prompt='You are an expert at entity extraction. Extract all relevant entities from social media content accurately.',
+                user_prompt=prompt,
+                schema=EntityOutput,
+                tool_name='entity_extraction',
+                temperature=0.2,
+            )
             return result
         except Exception as e:
             print(f"Error extracting entities: {e}")
@@ -72,56 +72,6 @@ Identify and extract:
 6. Mentions - User mentions (without the @ symbol)
 
 Be thorough and accurate. Only extract entities that are clearly present."""
-
-    def _call_zai_api(self, prompt: str) -> Dict[str, Any]:
-        """Call z.ai API with structured output"""
-        headers = {
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json'
-        }
-
-        schema = EntityOutput.model_json_schema()
-
-        payload = {
-            'model': self.model,
-            'messages': [
-                {
-                    'role': 'system',
-                    'content': 'You are an expert at entity extraction. Extract all relevant entities from social media content accurately.'
-                },
-                {
-                    'role': 'user',
-                    'content': prompt
-                }
-            ],
-            'response_format': {
-                'type': 'json_schema',
-                'json_schema': {
-                    'name': 'entity_extraction',
-                    'schema': schema,
-                    'strict': True
-                }
-            },
-            'temperature': 0.2,
-        }
-
-        response = requests.post(
-            self.api_url,
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
-
-        if response.status_code != 200:
-            raise Exception(f"Z.ai API error: {response.status_code} - {response.text}")
-
-        result = response.json()
-        content = result['choices'][0]['message']['content']
-
-        import json
-        entity_data = json.loads(content)
-
-        return entity_data
 
     def _empty_result(self) -> Dict[str, Any]:
         """Return empty result structure"""

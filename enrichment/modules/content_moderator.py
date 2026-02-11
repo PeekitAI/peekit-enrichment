@@ -1,8 +1,7 @@
-"""Content moderation module using z.ai with structured output"""
-import os
-import requests
+"""Content moderation module using AWS Bedrock with structured output"""
 from typing import Dict, Any, List
 from pydantic import BaseModel, Field
+from enrichment.common import BedrockClient
 
 
 class ModerationOutput(BaseModel):
@@ -17,7 +16,7 @@ class ModerationOutput(BaseModel):
 
 class ContentModerator:
     """
-    Flag inappropriate or unsafe content using z.ai
+    Flag inappropriate or unsafe content using AWS Bedrock
 
     Checks for:
     - Hate speech
@@ -30,12 +29,7 @@ class ContentModerator:
     """
 
     def __init__(self):
-        self.api_key = os.getenv('ZAI_API_KEY')
-        if not self.api_key:
-            raise ValueError("ZAI_API_KEY environment variable is required")
-
-        self.api_url = os.getenv('ZAI_API_URL', 'https://api.z.ai/v1/chat/completions')
-        self.model = os.getenv('ZAI_MODEL', 'gpt-4o-mini')
+        self.client = BedrockClient()
 
     def moderate(self, text: str) -> Dict[str, Any]:
         """
@@ -52,7 +46,13 @@ class ContentModerator:
 
         try:
             prompt = self._build_prompt(text)
-            result = self._call_zai_api(prompt)
+            result = self.client.invoke_structured(
+                system_prompt='You are an expert content moderator. Evaluate content objectively for safety and policy violations.',
+                user_prompt=prompt,
+                schema=ModerationOutput,
+                tool_name='content_moderation',
+                temperature=0.1,
+            )
             return result
         except Exception as e:
             print(f"Error moderating content: {e}")
@@ -82,56 +82,6 @@ Determine:
 - Confidence Score: How confident you are in this assessment (0-1)
 
 Be objective and consistent in moderation decisions."""
-
-    def _call_zai_api(self, prompt: str) -> Dict[str, Any]:
-        """Call z.ai API with structured output"""
-        headers = {
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json'
-        }
-
-        schema = ModerationOutput.model_json_schema()
-
-        payload = {
-            'model': self.model,
-            'messages': [
-                {
-                    'role': 'system',
-                    'content': 'You are an expert content moderator. Evaluate content objectively for safety and policy violations.'
-                },
-                {
-                    'role': 'user',
-                    'content': prompt
-                }
-            ],
-            'response_format': {
-                'type': 'json_schema',
-                'json_schema': {
-                    'name': 'content_moderation',
-                    'schema': schema,
-                    'strict': True
-                }
-            },
-            'temperature': 0.1,  # Very low for consistent moderation
-        }
-
-        response = requests.post(
-            self.api_url,
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
-
-        if response.status_code != 200:
-            raise Exception(f"Z.ai API error: {response.status_code} - {response.text}")
-
-        result = response.json()
-        content = result['choices'][0]['message']['content']
-
-        import json
-        moderation_data = json.loads(content)
-
-        return moderation_data
 
     def _safe_result(self) -> Dict[str, Any]:
         """Return safe/clean result"""

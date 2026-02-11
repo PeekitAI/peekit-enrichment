@@ -1,8 +1,7 @@
-"""Sentiment analysis module using z.ai with structured output"""
-import os
-import requests
+"""Sentiment analysis module using AWS Bedrock with structured output"""
 from typing import Dict, Any, List
 from pydantic import BaseModel, Field
+from enrichment.common import BedrockClient
 
 
 class SentimentOutput(BaseModel):
@@ -15,9 +14,9 @@ class SentimentOutput(BaseModel):
 
 class SentimentAnalyzer:
     """
-    Analyze sentiment of text using z.ai's structured output capability
+    Analyze sentiment of text using AWS Bedrock structured output
 
-    Uses z.ai API with structured output to extract:
+    Uses Bedrock Converse API with toolUse to extract:
     - Sentiment label (positive/negative/neutral)
     - Confidence score
     - Emotions detected
@@ -25,13 +24,7 @@ class SentimentAnalyzer:
     """
 
     def __init__(self):
-        self.api_key = os.getenv('ZAI_API_KEY')
-        if not self.api_key:
-            raise ValueError("ZAI_API_KEY environment variable is required")
-
-        # Z.ai API endpoint (adjust based on actual z.ai docs)
-        self.api_url = os.getenv('ZAI_API_URL', 'https://api.z.ai/v1/chat/completions')
-        self.model = os.getenv('ZAI_MODEL', 'gpt-4o-mini')  # Default model, adjust as needed
+        self.client = BedrockClient()
 
     def analyze(self, text: str) -> Dict[str, Any]:
         """
@@ -47,12 +40,14 @@ class SentimentAnalyzer:
             return self._empty_result()
 
         try:
-            # Build the prompt for sentiment analysis
             prompt = self._build_prompt(text)
-
-            # Call z.ai API with structured output
-            result = self._call_zai_api(prompt)
-
+            result = self.client.invoke_structured(
+                system_prompt='You are a sentiment analysis expert. Analyze the sentiment of social media content accurately and extract emotions and topics.',
+                user_prompt=prompt,
+                schema=SentimentOutput,
+                tool_name='sentiment_analysis',
+                temperature=0.3,
+            )
             return result
         except Exception as e:
             print(f"Error analyzing sentiment: {e}")
@@ -69,65 +64,6 @@ class SentimentAnalyzer:
 Tweet: "{text}"
 
 Provide a comprehensive sentiment analysis."""
-
-    def _call_zai_api(self, prompt: str) -> Dict[str, Any]:
-        """
-        Call z.ai API with structured output
-
-        Based on z.ai docs at https://docs.z.ai/guides/capabilities/struct-output
-        """
-        headers = {
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json'
-        }
-
-        # Convert Pydantic model to JSON schema for structured output
-        schema = SentimentOutput.model_json_schema()
-
-        payload = {
-            'model': self.model,
-            'messages': [
-                {
-                    'role': 'system',
-                    'content': 'You are a sentiment analysis expert. Analyze the sentiment of social media content accurately and extract emotions and topics.'
-                },
-                {
-                    'role': 'user',
-                    'content': prompt
-                }
-            ],
-            'response_format': {
-                'type': 'json_schema',
-                'json_schema': {
-                    'name': 'sentiment_analysis',
-                    'schema': schema,
-                    'strict': True
-                }
-            },
-            'temperature': 0.3,  # Lower temperature for more consistent results
-        }
-
-        response = requests.post(
-            self.api_url,
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
-
-        if response.status_code != 200:
-            raise Exception(f"Z.ai API error: {response.status_code} - {response.text}")
-
-        result = response.json()
-
-        # Extract the structured output from response
-        # Adjust based on actual z.ai response format
-        content = result['choices'][0]['message']['content']
-
-        # Parse JSON response
-        import json
-        sentiment_data = json.loads(content)
-
-        return sentiment_data
 
     def _empty_result(self) -> Dict[str, Any]:
         """Return empty result structure"""

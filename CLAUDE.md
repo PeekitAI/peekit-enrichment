@@ -38,7 +38,7 @@ Supported providers: `x_tweets`, `apify_x_tweets`, `apify_tiktok_posts`, `instag
 
 ### Modules (`enrichment/modules/`)
 
-Four modules call the **Z.ai API** (OpenAI-compatible) with Pydantic-based structured output schemas:
+Four modules call **AWS Bedrock** (Converse API with `toolUse` for structured JSON output) using a shared `BedrockClient`:
 - `SentimentAnalyzer` — sentiment label, score, confidence, emotions
 - `EntityExtractor` — named entities with types and relevance
 - `TopicClassifier` — primary/secondary topics with confidence
@@ -47,10 +47,11 @@ Four modules call the **Z.ai API** (OpenAI-compatible) with Pydantic-based struc
 One module is **purely algorithmic** (no API):
 - `EngagementScorer` — weighted engagement score, virality, interaction quality, time-adjusted metrics
 
-Each Z.ai module follows the pattern: `_build_prompt()` → `_call_zai_api()` → parsed dict, with `_empty_result()` as fallback on error.
+Each Bedrock module follows the pattern: `_build_prompt()` → `client.invoke_structured()` → parsed dict, with `_empty_result()` as fallback on error.
 
 ### Common utilities (`enrichment/common/`)
 
+- `BedrockClient` — shared wrapper around `boto3 bedrock-runtime` Converse API; `invoke_structured()` forces tool use to get structured JSON
 - `AthenaReader` — `fetch_unenriched(config, limit)` queries any provider table with anti-join against `enrichments`
 - `AthenaWriter` — `create_enrichments_table()` + `merge_enriched_records_batch()` for the unified output table
 
@@ -59,7 +60,8 @@ Legacy methods (`fetch_unenriched_tweets`, `create_enriched_tweets_table`, `merg
 ## Configuration
 
 All config is via environment variables (see `.env.example`). Key ones:
-- `ZAI_API_KEY` — required for AI modules
+- `BEDROCK_MODEL_ID` — Bedrock model (default: `us.anthropic.claude-3-5-haiku-20241022-v1:0`)
+- `BEDROCK_REGION` — Bedrock region (defaults to `AWS_REGION` / `ap-south-1`)
 - `AWS_REGION`, `ATHENA_S3_OUTPUT`, `ATHENA_DATABASE`, `ATHENA_WORKGROUP` — AWS/Athena config
 - `ENRICHMENT_PROVIDERS` — comma-separated list of providers to process (defaults to all)
 - `ENABLE_SENTIMENT`, `ENABLE_ENTITY`, `ENABLE_TOPIC`, `ENABLE_ENGAGEMENT`, `ENABLE_MODERATION` — toggle individual modules
